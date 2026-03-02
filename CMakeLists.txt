@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22)
+project(plasma-tweaks)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 REQUIRED COMPONENTS Quick Widgets QuickControls2)
+add_executable(plasma-tweaks plasma-tweaks.cpp)
+target_link_libraries(plasma-tweaks Qt6::Quick Qt6::Widgets Qt6::QuickControls2)
