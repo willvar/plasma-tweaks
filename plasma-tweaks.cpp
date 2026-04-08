@@ -258,14 +258,14 @@ public:
 
         // Detect plasma version
         QProcess p;
-        p.start(QStringLiteral("pacman"), {QStringLiteral("-Q"), QStringLiteral("plasma-desktop")});
+        p.start(QStringLiteral("plasmashell"), {QStringLiteral("--version")});
         p.waitForFinished(5000);
         QString output = QString::fromUtf8(p.readAllStandardOutput()).trimmed();
-        QRegularExpression re(QStringLiteral(R"(plasma-desktop\s+(\d+\.\d+\.\d+))"));
+        QRegularExpression re(QStringLiteral(R"(plasmashell\s+(\d+\.\d+\.\d+))"));
         auto match = re.match(output);
         if (!match.hasMatch()) {
             appendLog(QStringLiteral("ERROR: Could not detect Plasma version"));
-            appendLog(QStringLiteral("pacman output: ") + output);
+            appendLog(QStringLiteral("plasmashell output: ") + output);
             return;
         }
         m_plasmaVersion = match.captured(1);
