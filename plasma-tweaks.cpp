@@ -26,11 +26,12 @@ include(KDEInstallDirs)
 include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
-find_package(KF6 REQUIRED COMPONENTS Config Package CoreAddons)
+find_package(Qt6 REQUIRED COMPONENTS Quick DBus)
+find_package(KF6 REQUIRED COMPONENTS Config Package CoreAddons WindowSystem)
 find_package(Plasma REQUIRED)
 
 add_subdirectory(kickoff)
+add_subdirectory(showdesktop)
 )";
 
 // ─── Embedded CMakeLists.txt for systemtray standalone build ────────
@@ -279,6 +280,7 @@ public:
         }
 
         bool srcOk = QDir(m_dataDir + QStringLiteral("/src/plasma-desktop/applets/kickoff")).exists()
+                   && QDir(m_dataDir + QStringLiteral("/src/plasma-desktop/applets/showdesktop")).exists()
                    && QDir(m_dataDir + QStringLiteral("/src/plasma-workspace/applets/systemtray")).exists();
         bool buildsOk = QFile::exists(m_dataDir + QStringLiteral("/kickoff-build/build/build.ninja"))
                      && QFile::exists(m_dataDir + QStringLiteral("/systray-build/build/build.ninja"));
@@ -324,7 +326,7 @@ public:
         addStep("Cloning plasma-desktop (kickoff)...",
                 QString("git clone --depth 1 --filter=blob:none --sparse "
                         "https://invent.kde.org/plasma/plasma-desktop.git "
-                        "--branch v%1 %2 && cd %2 && git sparse-checkout set applets/kickoff")
+                        "--branch v%1 %2 && cd %2 && git sparse-checkout set applets/kickoff applets/showdesktop")
                     .arg(m_plasmaVersion, kickClone),
                 srcDir);
 
@@ -386,7 +388,8 @@ public:
 
         // 1. Patch QML
         addStepAction("Patching QML files...", [this]() {
-            return patchKickoffQml() && patchSystrayQml();
+            return patchKickoffQml() && patchSystrayQml()
+                && patchShowdesktopQml();
         });
 
         // 2. Build kickoff
@@ -533,9 +536,11 @@ private:
         cmake.write(KICKOFF_CMAKE);
         cmake.close();
 
-        // Symlink kickoff source
-        QString link = buildDir + QStringLiteral("/kickoff");
-        QFile::link(cloneDir + QStringLiteral("/applets/kickoff"), link);
+        // Symlink applet sources
+        QFile::link(cloneDir + QStringLiteral("/applets/kickoff"),
+                    buildDir + QStringLiteral("/kickoff"));
+        QFile::link(cloneDir + QStringLiteral("/applets/showdesktop"),
+                    buildDir + QStringLiteral("/showdesktop"));
 
         appendLog(QStringLiteral("  Created kickoff-build/"));
         return true;
@@ -685,19 +690,74 @@ private:
         return true;
     }
 
+    bool patchShowdesktopQml() {
+        QString path = m_dataDir + QStringLiteral("/kickoff-build/showdesktop/main.qml");
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot open ") + path);
+            return false;
+        }
+        QString content = QString::fromUtf8(f.readAll());
+        f.close();
+
+        // Replace "Layout.maximumWidth: Layout.minimumWidth" with fixed size
+        // and "Layout.minimumWidth: Kirigami.Units.iconSizes.medium" likewise
+        QRegularExpression minW(QStringLiteral(
+            R"(Layout\.minimumWidth: Kirigami\.Units\.iconSizes\.medium)"));
+        QRegularExpression maxW(QStringLiteral(
+            R"(Layout\.maximumWidth: Layout\.minimumWidth)"));
+        QRegularExpression minH(QStringLiteral(
+            R"(Layout\.minimumHeight: Kirigami\.Units\.iconSizes\.medium)"));
+        QRegularExpression maxH(QStringLiteral(
+            R"(Layout\.maximumHeight: Layout\.minimumHeight)"));
+
+        // Also handle already-patched (numeric values)
+        QRegularExpression minWPatched(QStringLiteral(R"(Layout\.minimumWidth: \d+)"));
+        QRegularExpression maxWPatched(QStringLiteral(R"(Layout\.maximumWidth: \d+)"));
+        QRegularExpression minHPatched(QStringLiteral(R"(Layout\.minimumHeight: \d+)"));
+        QRegularExpression maxHPatched(QStringLiteral(R"(Layout\.maximumHeight: \d+)"));
+
+        QString sizeStr = QString::number(iconSize());
+
+        if (minW.match(content).hasMatch()) {
+            content.replace(minW, QStringLiteral("Layout.minimumWidth: ") + sizeStr);
+            content.replace(maxW, QStringLiteral("Layout.maximumWidth: ") + sizeStr);
+            content.replace(minH, QStringLiteral("Layout.minimumHeight: ") + sizeStr);
+            content.replace(maxH, QStringLiteral("Layout.maximumHeight: ") + sizeStr);
+        } else if (minWPatched.match(content).hasMatch()) {
+            content.replace(minWPatched, QStringLiteral("Layout.minimumWidth: ") + sizeStr);
+            content.replace(maxWPatched, QStringLiteral("Layout.maximumWidth: ") + sizeStr);
+            content.replace(minHPatched, QStringLiteral("Layout.minimumHeight: ") + sizeStr);
+            content.replace(maxHPatched, QStringLiteral("Layout.maximumHeight: ") + sizeStr);
+        } else {
+            appendLog(QStringLiteral("  ERROR: Cannot find Layout size pattern in showdesktop main.qml"));
+            return false;
+        }
+
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
+            return false;
+        }
+        f.write(content.toUtf8());
+        f.close();
+        appendLog(QString("  Showdesktop icon size: %1 px").arg(iconSize()));
+        return true;
+    }
+
     // ── Install script ──────────────────────────────────────────────
 
     bool writeInstallScript(const QString &kickBuild, const QString &systrayBuild) {
         QString kickoffSo = kickBuild + QStringLiteral("/build/out/plasma/applets/org.kde.plasma.kickoff.so");
+        QString showdesktopSo = kickBuild + QStringLiteral("/build/out/plasma/applets/org.kde.plasma.showdesktop.so");
         QString systraySo = systrayBuild + QStringLiteral("/build/out/plasma/applets/org.kde.plasma.systemtray.so");
 
-        if (!QFile::exists(kickoffSo)) {
-            appendLog(QStringLiteral("  ERROR: kickoff .so not found: ") + kickoffSo);
-            return false;
-        }
-        if (!QFile::exists(systraySo)) {
-            appendLog(QStringLiteral("  ERROR: systemtray .so not found: ") + systraySo);
-            return false;
+        for (const auto &[name, path] : {std::pair{QStringLiteral("kickoff"), kickoffSo},
+                                          {QStringLiteral("showdesktop"), showdesktopSo},
+                                          {QStringLiteral("systemtray"), systraySo}}) {
+            if (!QFile::exists(path)) {
+                appendLog(QStringLiteral("  ERROR: %1 .so not found: %2").arg(name, path));
+                return false;
+            }
         }
 
         QString script = QString(R"(#!/bin/bash
@@ -705,18 +765,17 @@ set -e
 APPLETS_DIR="%1"
 
 # Backup originals (only if .bak doesn't exist yet)
-[ ! -f "$APPLETS_DIR/org.kde.plasma.kickoff.so.bak" ] && \
-    cp "$APPLETS_DIR/org.kde.plasma.kickoff.so" "$APPLETS_DIR/org.kde.plasma.kickoff.so.bak"
+for SO in org.kde.plasma.kickoff.so org.kde.plasma.showdesktop.so org.kde.plasma.systemtray.so; do
+    [ ! -f "$APPLETS_DIR/${SO}.bak" ] && cp "$APPLETS_DIR/$SO" "$APPLETS_DIR/${SO}.bak"
+done
 
-[ ! -f "$APPLETS_DIR/org.kde.plasma.systemtray.so.bak" ] && \
-    cp "$APPLETS_DIR/org.kde.plasma.systemtray.so" "$APPLETS_DIR/org.kde.plasma.systemtray.so.bak"
-
-# Copy new files
+# Copy new .so files
 cp "%2" "$APPLETS_DIR/org.kde.plasma.kickoff.so"
-cp "%3" "$APPLETS_DIR/org.kde.plasma.systemtray.so"
+cp "%3" "$APPLETS_DIR/org.kde.plasma.showdesktop.so"
+cp "%4" "$APPLETS_DIR/org.kde.plasma.systemtray.so"
 
 echo "Installation complete"
-)").arg(m_appletsDir, kickoffSo, systraySo);
+)").arg(m_appletsDir, kickoffSo, showdesktopSo, systraySo);
 
         QFile f(m_dataDir + QStringLiteral("/install.sh"));
         if (!f.open(QIODevice::WriteOnly)) {
