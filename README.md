@@ -6,13 +6,15 @@ Qt6 GUI tool for customizing KDE Plasma 6 applets whose QML is compiled into `.s
 
 - **Kickoff** — Category list item padding
 - **System Tray** — Icon size override (autoSize mode)
+- **Show Desktop** — Layout dimension constraint
+- **DefaultCompactRepresentation** — Icon size constraint
 
 ## Build
 
 ```bash
-cmake -B build -GNinja
-ninja -C build
-./build/plasma-tweaks
+make        # build
+make run    # build & run
+make clean  # clean
 ```
 
 ### Dependencies
