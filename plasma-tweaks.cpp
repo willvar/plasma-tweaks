@@ -389,7 +389,7 @@ public:
         // 1. Patch QML
         addStepAction("Patching QML files...", [this]() {
             return patchKickoffQml() && patchSystrayQml()
-                && patchShowdesktopQml();
+                && patchShowdesktopQml() && patchDefaultCompactQml();
         });
 
         // 2. Build kickoff
@@ -744,6 +744,60 @@ private:
         return true;
     }
 
+    bool patchDefaultCompactQml() {
+        // Patch the shell's DefaultCompactRepresentation.qml to constrain icon size.
+        // CompactApplet.qml sets anchors.fill on the compact rep AFTER creation,
+        // so we use Component.onCompleted + Qt.callLater to override it:
+        // undo anchors.fill, center in parent, constrain width/height.
+        const QString sysPath = QStringLiteral(
+            "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/applet/DefaultCompactRepresentation.qml");
+        // Read from .bak (stock original) if it exists, otherwise from the live file
+        QString srcPath = sysPath + QStringLiteral(".bak");
+        if (!QFile::exists(srcPath))
+            srcPath = sysPath;
+
+        QFile f(srcPath);
+        if (!f.exists()) {
+            appendLog(QStringLiteral("  DefaultCompactRepresentation.qml not found, skipping"));
+            return true;
+        }
+        if (!f.open(QIODevice::ReadOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot read ") + srcPath);
+            return false;
+        }
+        QString content = QString::fromUtf8(f.readAll());
+        f.close();
+
+        // Find the final closing brace and insert our override just before it
+        int lastBrace = content.lastIndexOf(QLatin1Char('}'));
+        if (lastBrace < 0) {
+            appendLog(QStringLiteral("  ERROR: Cannot find closing brace in DefaultCompactRepresentation.qml"));
+            return false;
+        }
+
+        QString override = QString(
+            "\n    // plasma-tweaks: constrain icon size\n"
+            "    Component.onCompleted: Qt.callLater(() => {\n"
+            "        anchors.fill = undefined;\n"
+            "        anchors.centerIn = parent;\n"
+            "        width = Qt.binding(() => Math.min(parent ? parent.width : 0, parent ? parent.height : 0, %1));\n"
+            "        height = Qt.binding(() => width);\n"
+            "    })\n").arg(iconSize());
+
+        content.insert(lastBrace, override);
+
+        QString patchedPath = m_dataDir + QStringLiteral("/DefaultCompactRepresentation.qml");
+        QFile out(patchedPath);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write patched DefaultCompactRepresentation.qml"));
+            return false;
+        }
+        out.write(content.toUtf8());
+        out.close();
+        appendLog(QString("  Default compact icon size: %1 px").arg(iconSize()));
+        return true;
+    }
+
     // ── Install script ──────────────────────────────────────────────
 
     bool writeInstallScript(const QString &kickBuild, const QString &systrayBuild) {
@@ -760,6 +814,10 @@ private:
             }
         }
 
+        const QString compactQmlSrc = m_dataDir + QStringLiteral("/DefaultCompactRepresentation.qml");
+        const QString compactQmlDst = QStringLiteral(
+            "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/applet/DefaultCompactRepresentation.qml");
+
         QString script = QString(R"(#!/bin/bash
 set -e
 APPLETS_DIR="%1"
@@ -773,9 +831,19 @@ done
 cp "%2" "$APPLETS_DIR/org.kde.plasma.kickoff.so"
 cp "%3" "$APPLETS_DIR/org.kde.plasma.showdesktop.so"
 cp "%4" "$APPLETS_DIR/org.kde.plasma.systemtray.so"
-
-echo "Installation complete"
 )").arg(m_appletsDir, kickoffSo, showdesktopSo, systraySo);
+
+        // Patch DefaultCompactRepresentation.qml (plain QML file, no rebuild needed)
+        if (QFile::exists(compactQmlSrc)) {
+            script += QString(R"(
+# Backup and patch DefaultCompactRepresentation.qml
+COMPACT_QML="%1"
+[ ! -f "${COMPACT_QML}.bak" ] && cp "$COMPACT_QML" "${COMPACT_QML}.bak"
+cp "%2" "$COMPACT_QML"
+)").arg(compactQmlDst, compactQmlSrc);
+        }
+
+        script += QStringLiteral("\necho \"Installation complete\"\n");
 
         QFile f(m_dataDir + QStringLiteral("/install.sh"));
         if (!f.open(QIODevice::WriteOnly)) {
