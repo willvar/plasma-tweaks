@@ -5,10 +5,10 @@
 #include <QProcess>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
+#include <algorithm>
 
 // ─── Embedded CMakeLists.txt for kickoff standalone build ───────────
 
@@ -199,7 +199,6 @@ class TweaksBackend : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool initialized READ initialized NOTIFY initializedChanged)
     Q_PROPERTY(bool needsInit READ needsInit NOTIFY needsInitChanged)
-    Q_PROPERTY(QString initReason READ initReason NOTIFY needsInitChanged)
 
 public:
     explicit TweaksBackend(QObject *parent = nullptr)
@@ -236,7 +235,6 @@ public:
     bool busy() const { return m_busy; }
     bool initialized() const { return m_initialized; }
     bool needsInit() const { return m_needsInit; }
-    QString initReason() const { return m_initReason; }
     // ── Slots ───────────────────────────────────────────────────────
 
     Q_INVOKABLE void prevIconSize() { setIconSizeIndex(m_iconSizeIdx - 1); }
@@ -532,7 +530,6 @@ private:
     void setNeedsInit(const QString &reason) {
         m_needsInit = true;
         m_initialized = false;
-        m_initReason = reason;
         emit needsInitChanged();
         emit initializedChanged();
         appendLog(reason);
@@ -833,16 +830,9 @@ cp "%2" "$COMPACT_QML"
     }
 
     void setIconSizeFromValue(int size) {
-        int idx = m_iconSizes.indexOf(size);
-        if (idx < 0) {
-            // Find nearest preset
-            int bestDiff = INT_MAX;
-            for (int i = 0; i < m_iconSizes.size(); i++) {
-                int diff = qAbs(m_iconSizes[i] - size);
-                if (diff < bestDiff) { bestDiff = diff; idx = i; }
-            }
-        }
-        m_iconSizeIdx = idx;
+        auto it = std::min_element(m_iconSizes.begin(), m_iconSizes.end(),
+            [size](int a, int b) { return qAbs(a - size) < qAbs(b - size); });
+        m_iconSizeIdx = static_cast<int>(std::distance(m_iconSizes.begin(), it));
         emit iconSizeChanged();
     }
 
@@ -899,12 +889,11 @@ cp "%2" "$COMPACT_QML"
     bool m_busy = false;
     bool m_initialized = false;
     bool m_needsInit = false;
-    QString m_initReason;
     QString m_dataDir;
     QString m_plasmaVersion;
     QString m_appletsDir;
 
-    QVector<Step> m_steps;
+    QList<Step> m_steps;
     int m_stepIdx = -1;
     QProcess *m_proc;
 };
