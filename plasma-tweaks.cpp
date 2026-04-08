@@ -236,7 +236,6 @@ public:
     bool initialized() const { return m_initialized; }
     bool needsInit() const { return m_needsInit; }
     QString initReason() const { return m_initReason; }
-
     // ── Slots ───────────────────────────────────────────────────────
 
     Q_INVOKABLE void prevIconSize() { setIconSizeIndex(m_iconSizeIdx - 1); }
@@ -245,6 +244,16 @@ public:
     Q_INVOKABLE void checkInit() {
         m_log.clear();
         emit logChanged();
+
+        // Detect Qt6 plugin path via qmake6 (part of qt6-base)
+        QProcess pq;
+        pq.start(QStringLiteral("qmake6"), {QStringLiteral("-query"), QStringLiteral("QT_INSTALL_PLUGINS")});
+        pq.waitForFinished(5000);
+        QString pluginDir = QString::fromUtf8(pq.readAllStandardOutput()).trimmed();
+        if (pluginDir.isEmpty())
+            pluginDir = QStringLiteral("/usr/lib/qt6/plugins");
+        m_appletsDir = pluginDir + QStringLiteral("/plasma/applets");
+        appendLog(QStringLiteral("Applets dir: ") + m_appletsDir);
 
         // Detect plasma version
         QProcess p;
@@ -693,7 +702,7 @@ private:
 
         QString script = QString(R"(#!/bin/bash
 set -e
-APPLETS_DIR="/usr/lib/qt6/plugins/plasma/applets"
+APPLETS_DIR="%1"
 
 # Backup originals (only if .bak doesn't exist yet)
 [ ! -f "$APPLETS_DIR/org.kde.plasma.kickoff.so.bak" ] && \
@@ -703,11 +712,11 @@ APPLETS_DIR="/usr/lib/qt6/plugins/plasma/applets"
     cp "$APPLETS_DIR/org.kde.plasma.systemtray.so" "$APPLETS_DIR/org.kde.plasma.systemtray.so.bak"
 
 # Copy new files
-cp "%1" "$APPLETS_DIR/org.kde.plasma.kickoff.so"
-cp "%2" "$APPLETS_DIR/org.kde.plasma.systemtray.so"
+cp "%2" "$APPLETS_DIR/org.kde.plasma.kickoff.so"
+cp "%3" "$APPLETS_DIR/org.kde.plasma.systemtray.so"
 
 echo "Installation complete"
-)").arg(kickoffSo, systraySo);
+)").arg(m_appletsDir, kickoffSo, systraySo);
 
         QFile f(m_dataDir + QStringLiteral("/install.sh"));
         if (!f.open(QIODevice::WriteOnly)) {
@@ -818,6 +827,7 @@ echo "Installation complete"
     QString m_initReason;
     QString m_dataDir;
     QString m_plasmaVersion;
+    QString m_appletsDir;
 
     QVector<Step> m_steps;
     int m_stepIdx = -1;
