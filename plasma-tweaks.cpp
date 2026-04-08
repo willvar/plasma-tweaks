@@ -513,6 +513,22 @@ private:
         emit logChanged();
     }
 
+    QString readFile(const QString &path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return QString();
+        QString content = QString::fromUtf8(f.readAll());
+        f.close();
+        return content;
+    }
+
+    bool writeFile(const QString &path, const QString &content) {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        f.write(content.toUtf8());
+        f.close();
+        return true;
+    }
+
     void setNeedsInit(const QString &reason) {
         m_needsInit = true;
         m_initialized = false;
@@ -528,13 +544,10 @@ private:
         QDir().mkpath(buildDir + QStringLiteral("/build"));
 
         // Write wrapper CMakeLists.txt
-        QFile cmake(buildDir + QStringLiteral("/CMakeLists.txt"));
-        if (!cmake.open(QIODevice::WriteOnly)) {
+        if (!writeFile(buildDir + QStringLiteral("/CMakeLists.txt"), QString::fromLatin1(KICKOFF_CMAKE))) {
             appendLog(QStringLiteral("  ERROR: Cannot write kickoff CMakeLists.txt"));
             return false;
         }
-        cmake.write(KICKOFF_CMAKE);
-        cmake.close();
 
         // Symlink applet sources
         QFile::link(cloneDir + QStringLiteral("/applets/kickoff"),
@@ -550,13 +563,10 @@ private:
         QDir().mkpath(buildDir + QStringLiteral("/build"));
 
         // Write wrapper CMakeLists.txt
-        QFile cmake(buildDir + QStringLiteral("/CMakeLists.txt"));
-        if (!cmake.open(QIODevice::WriteOnly)) {
+        if (!writeFile(buildDir + QStringLiteral("/CMakeLists.txt"), QString::fromLatin1(SYSTRAY_CMAKE))) {
             appendLog(QStringLiteral("  ERROR: Cannot write systray CMakeLists.txt"));
             return false;
         }
-        cmake.write(SYSTRAY_CMAKE);
-        cmake.close();
 
         // Symlinks to workspace subdirectories
         auto link = [&](const QString &name, const QString &target) {
@@ -568,27 +578,21 @@ private:
         link(QStringLiteral("statusnotifierwatcher"),  cloneDir + QStringLiteral("/statusnotifierwatcher"));
 
         // Write config-X11.h into build dir
-        QFile cfg(buildDir + QStringLiteral("/build/config-X11.h"));
-        if (!cfg.open(QIODevice::WriteOnly)) {
+        if (!writeFile(buildDir + QStringLiteral("/build/config-X11.h"), QString::fromLatin1(CONFIG_X11_H))) {
             appendLog(QStringLiteral("  ERROR: Cannot write config-X11.h"));
             return false;
         }
-        cfg.write(CONFIG_X11_H);
-        cfg.close();
 
         // Patch systemtray CMakeLists.txt: add include_directories for config-X11.h
         QString systraycmake = cloneDir + QStringLiteral("/applets/systemtray/CMakeLists.txt");
-        QFile sf(systraycmake);
-        if (!sf.open(QIODevice::ReadOnly)) {
+        QString content = readFile(systraycmake);
+        if (content.isNull()) {
             appendLog(QStringLiteral("  ERROR: Cannot read systemtray CMakeLists.txt"));
             return false;
         }
-        QString content = QString::fromUtf8(sf.readAll());
-        sf.close();
 
         const QString marker = QStringLiteral("include_directories(${CMAKE_BINARY_DIR})");
         if (!content.contains(marker)) {
-            // The file has literal backslash-escaped quotes: \"
             const QString searchStr = QStringLiteral(
                 R"(add_definitions(-DTRANSLATION_DOMAIN=\"plasma_applet_org.kde.plasma.systemtray\"))");
             if (!content.contains(searchStr)) {
@@ -596,12 +600,10 @@ private:
                 return false;
             }
             content.replace(searchStr, searchStr + QStringLiteral("\n") + marker);
-            if (!sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            if (!writeFile(systraycmake, content)) {
                 appendLog(QStringLiteral("  ERROR: Cannot write systemtray CMakeLists.txt"));
                 return false;
             }
-            sf.write(content.toUtf8());
-            sf.close();
         }
 
         appendLog(QStringLiteral("  Created systray-build/"));
@@ -612,22 +614,17 @@ private:
 
     bool patchKickoffQml() {
         QString path = m_dataDir + QStringLiteral("/kickoff-build/kickoff/KickoffListDelegate.qml");
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) {
+        QString content = readFile(path);
+        if (content.isNull()) {
             appendLog(QStringLiteral("  ERROR: Cannot open ") + path);
             return false;
         }
-        QString content = QString::fromUtf8(f.readAll());
-        f.close();
 
         // Two cases: already patched (has "isCategoryListItem ? <N> :") or stock
         QRegularExpression patchedRe(QStringLiteral(R"(isCategoryListItem \? \d+ :)"));
         if (patchedRe.match(content).hasMatch()) {
-            // Already patched - just update the number
             content.replace(patchedRe, QString("isCategoryListItem ? %1 :").arg(m_padding));
         } else {
-            // Stock format: "compact && !isCategoryListItem ? Kirigami.Units.mediumSpacing : Kirigami.Units.smallSpacing"
-            // Transform to: "!compact && isCategoryListItem ? <N> : (compact && !isCategoryListItem ? Kirigami.Units.mediumSpacing : Kirigami.Units.smallSpacing)"
             const QString stockExpr = QStringLiteral(
                 "compact && !isCategoryListItem ? Kirigami.Units.mediumSpacing : Kirigami.Units.smallSpacing");
             const QString patchedExpr = QString(
@@ -641,25 +638,21 @@ private:
             content.replace(stockExpr, patchedExpr);
         }
 
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (!writeFile(path, content)) {
             appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
             return false;
         }
-        f.write(content.toUtf8());
-        f.close();
         appendLog(QString("  Kickoff padding: %1 px").arg(m_padding));
         return true;
     }
 
     bool patchSystrayQml() {
         QString path = m_dataDir + QStringLiteral("/systray-build/systemtray/qml/main.qml");
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) {
+        QString content = readFile(path);
+        if (content.isNull()) {
             appendLog(QStringLiteral("  ERROR: Cannot open ") + path);
             return false;
         }
-        QString content = QString::fromUtf8(f.readAll());
-        f.close();
 
         // Find "if (autoSize) {" then replace the entire return statement on the next line
         QRegularExpression findBlock(QStringLiteral(R"(if \(autoSize\) \{)"));
@@ -669,7 +662,6 @@ private:
             return false;
         }
 
-        // Match "return <anything-to-end-of-line>" after the autoSize block
         QRegularExpression findReturn(QStringLiteral(R"(return [^\n]+)"));
         auto retMatch = findReturn.match(content, blockMatch.capturedEnd());
         if (!retMatch.hasMatch()) {
@@ -680,66 +672,43 @@ private:
         content.replace(retMatch.capturedStart(), retMatch.capturedLength(),
                         QString("return %1").arg(iconSize()));
 
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (!writeFile(path, content)) {
             appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
             return false;
         }
-        f.write(content.toUtf8());
-        f.close();
         appendLog(QString("  Systray icon size: %1 px").arg(iconSize()));
         return true;
     }
 
     bool patchShowdesktopQml() {
         QString path = m_dataDir + QStringLiteral("/kickoff-build/showdesktop/main.qml");
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) {
+        QString content = readFile(path);
+        if (content.isNull()) {
             appendLog(QStringLiteral("  ERROR: Cannot open ") + path);
             return false;
         }
-        QString content = QString::fromUtf8(f.readAll());
-        f.close();
 
-        // Replace "Layout.maximumWidth: Layout.minimumWidth" with fixed size
-        // and "Layout.minimumWidth: Kirigami.Units.iconSizes.medium" likewise
-        QRegularExpression minW(QStringLiteral(
-            R"(Layout\.minimumWidth: Kirigami\.Units\.iconSizes\.medium)"));
-        QRegularExpression maxW(QStringLiteral(
-            R"(Layout\.maximumWidth: Layout\.minimumWidth)"));
-        QRegularExpression minH(QStringLiteral(
-            R"(Layout\.minimumHeight: Kirigami\.Units\.iconSizes\.medium)"));
-        QRegularExpression maxH(QStringLiteral(
-            R"(Layout\.maximumHeight: Layout\.minimumHeight)"));
+        // Match both stock (Kirigami.Units.iconSizes.medium) and already-patched (numeric) forms
+        QRegularExpression minW(QStringLiteral(R"(Layout\.minimumWidth: (?:Kirigami\.Units\.iconSizes\.medium|\d+))"));
+        QRegularExpression maxW(QStringLiteral(R"(Layout\.maximumWidth: (?:Layout\.minimumWidth|\d+))"));
+        QRegularExpression minH(QStringLiteral(R"(Layout\.minimumHeight: (?:Kirigami\.Units\.iconSizes\.medium|\d+))"));
+        QRegularExpression maxH(QStringLiteral(R"(Layout\.maximumHeight: (?:Layout\.minimumHeight|\d+))"));
 
-        // Also handle already-patched (numeric values)
-        QRegularExpression minWPatched(QStringLiteral(R"(Layout\.minimumWidth: \d+)"));
-        QRegularExpression maxWPatched(QStringLiteral(R"(Layout\.maximumWidth: \d+)"));
-        QRegularExpression minHPatched(QStringLiteral(R"(Layout\.minimumHeight: \d+)"));
-        QRegularExpression maxHPatched(QStringLiteral(R"(Layout\.maximumHeight: \d+)"));
-
-        QString sizeStr = QString::number(iconSize());
-
-        if (minW.match(content).hasMatch()) {
-            content.replace(minW, QStringLiteral("Layout.minimumWidth: ") + sizeStr);
-            content.replace(maxW, QStringLiteral("Layout.maximumWidth: ") + sizeStr);
-            content.replace(minH, QStringLiteral("Layout.minimumHeight: ") + sizeStr);
-            content.replace(maxH, QStringLiteral("Layout.maximumHeight: ") + sizeStr);
-        } else if (minWPatched.match(content).hasMatch()) {
-            content.replace(minWPatched, QStringLiteral("Layout.minimumWidth: ") + sizeStr);
-            content.replace(maxWPatched, QStringLiteral("Layout.maximumWidth: ") + sizeStr);
-            content.replace(minHPatched, QStringLiteral("Layout.minimumHeight: ") + sizeStr);
-            content.replace(maxHPatched, QStringLiteral("Layout.maximumHeight: ") + sizeStr);
-        } else {
+        if (!minW.match(content).hasMatch()) {
             appendLog(QStringLiteral("  ERROR: Cannot find Layout size pattern in showdesktop main.qml"));
             return false;
         }
 
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QString sizeStr = QString::number(iconSize());
+        content.replace(minW, QStringLiteral("Layout.minimumWidth: ") + sizeStr);
+        content.replace(maxW, QStringLiteral("Layout.maximumWidth: ") + sizeStr);
+        content.replace(minH, QStringLiteral("Layout.minimumHeight: ") + sizeStr);
+        content.replace(maxH, QStringLiteral("Layout.maximumHeight: ") + sizeStr);
+
+        if (!writeFile(path, content)) {
             appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
             return false;
         }
-        f.write(content.toUtf8());
-        f.close();
         appendLog(QString("  Showdesktop icon size: %1 px").arg(iconSize()));
         return true;
     }
@@ -756,44 +725,36 @@ private:
         if (!QFile::exists(srcPath))
             srcPath = sysPath;
 
-        QFile f(srcPath);
-        if (!f.exists()) {
-            appendLog(QStringLiteral("  DefaultCompactRepresentation.qml not found, skipping"));
-            return true;
-        }
-        if (!f.open(QIODevice::ReadOnly)) {
+        QString content = readFile(srcPath);
+        if (content.isNull()) {
+            if (!QFile::exists(srcPath)) {
+                appendLog(QStringLiteral("  DefaultCompactRepresentation.qml not found, skipping"));
+                return true;
+            }
             appendLog(QStringLiteral("  ERROR: Cannot read ") + srcPath);
             return false;
         }
-        QString content = QString::fromUtf8(f.readAll());
-        f.close();
 
-        // Find the final closing brace and insert our override just before it
         int lastBrace = content.lastIndexOf(QLatin1Char('}'));
         if (lastBrace < 0) {
             appendLog(QStringLiteral("  ERROR: Cannot find closing brace in DefaultCompactRepresentation.qml"));
             return false;
         }
 
-        QString override = QString(
+        content.insert(lastBrace, QString(
             "\n    // plasma-tweaks: constrain icon size\n"
             "    Component.onCompleted: Qt.callLater(() => {\n"
             "        anchors.fill = undefined;\n"
             "        anchors.centerIn = parent;\n"
             "        width = Qt.binding(() => Math.min(parent ? parent.width : 0, parent ? parent.height : 0, %1));\n"
             "        height = Qt.binding(() => width);\n"
-            "    })\n").arg(iconSize());
-
-        content.insert(lastBrace, override);
+            "    })\n").arg(iconSize()));
 
         QString patchedPath = m_dataDir + QStringLiteral("/DefaultCompactRepresentation.qml");
-        QFile out(patchedPath);
-        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (!writeFile(patchedPath, content)) {
             appendLog(QStringLiteral("  ERROR: Cannot write patched DefaultCompactRepresentation.qml"));
             return false;
         }
-        out.write(content.toUtf8());
-        out.close();
         appendLog(QString("  Default compact icon size: %1 px").arg(iconSize()));
         return true;
     }
@@ -845,32 +806,24 @@ cp "%2" "$COMPACT_QML"
 
         script += QStringLiteral("\necho \"Installation complete\"\n");
 
-        QFile f(m_dataDir + QStringLiteral("/install.sh"));
-        if (!f.open(QIODevice::WriteOnly)) {
+        if (!writeFile(m_dataDir + QStringLiteral("/install.sh"), script)) {
             appendLog(QStringLiteral("  ERROR: Cannot write install.sh"));
             return false;
         }
-        f.write(script.toUtf8());
-        f.close();
         return true;
     }
 
     // ── Settings persistence ────────────────────────────────────────
 
     void saveSettings() {
-        QFile f(m_dataDir + QStringLiteral("/settings"));
-        if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("%1 %2\n").arg(m_padding).arg(iconSize()).toUtf8());
-            f.close();
-        }
+        writeFile(m_dataDir + QStringLiteral("/settings"),
+                  QString("%1 %2\n").arg(m_padding).arg(iconSize()));
     }
 
     bool loadSettings() {
-        QFile f(m_dataDir + QStringLiteral("/settings"));
-        if (!f.open(QIODevice::ReadOnly)) return false;
-        QString line = QString::fromUtf8(f.readAll()).trimmed();
-        f.close();
-        QStringList parts = line.split(QLatin1Char(' '));
+        QString line = readFile(m_dataDir + QStringLiteral("/settings"));
+        if (line.isNull()) return false;
+        QStringList parts = line.trimmed().split(QLatin1Char(' '));
         if (parts.size() < 2) return false;
 
         m_padding = parts[0].toInt();
@@ -907,12 +860,10 @@ cp "%2" "$COMPACT_QML"
         bool paddingPatched = false;
         bool iconPatched = false;
 
-        QFile f1(m_dataDir + QStringLiteral("/kickoff-build/kickoff/KickoffListDelegate.qml"));
-        if (f1.open(QIODevice::ReadOnly)) {
-            QString content = QString::fromUtf8(f1.readAll());
-            f1.close();
+        QString kickoffContent = readFile(m_dataDir + QStringLiteral("/kickoff-build/kickoff/KickoffListDelegate.qml"));
+        if (!kickoffContent.isNull()) {
             QRegularExpression re(QStringLiteral(R"(isCategoryListItem \? (\d+) :)"));
-            auto match = re.match(content);
+            auto match = re.match(kickoffContent);
             if (match.hasMatch()) {
                 m_padding = match.captured(1).toInt();
                 emit paddingChanged();
@@ -920,16 +871,13 @@ cp "%2" "$COMPACT_QML"
             }
         }
 
-        QFile f2(m_dataDir + QStringLiteral("/systray-build/systemtray/qml/main.qml"));
-        if (f2.open(QIODevice::ReadOnly)) {
-            QString content = QString::fromUtf8(f2.readAll());
-            f2.close();
+        QString systrayContent = readFile(m_dataDir + QStringLiteral("/systray-build/systemtray/qml/main.qml"));
+        if (!systrayContent.isNull()) {
             QRegularExpression findBlock(QStringLiteral(R"(if \(autoSize\) \{)"));
-            auto blockMatch = findBlock.match(content);
+            auto blockMatch = findBlock.match(systrayContent);
             if (blockMatch.hasMatch()) {
-                // Check if patched (simple "return <N>") vs stock (return Kirigami.Units...)
                 QRegularExpression findReturn(QStringLiteral(R"(return (\d+)\s*\n)"));
-                auto retMatch = findReturn.match(content, blockMatch.capturedEnd());
+                auto retMatch = findReturn.match(systrayContent, blockMatch.capturedEnd());
                 if (retMatch.hasMatch()) {
                     setIconSizeFromValue(retMatch.captured(1).toInt());
                     iconPatched = true;
