@@ -51,8 +51,11 @@ include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 include(ECMQtDeclareLoggingCategory)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(Qt6 REQUIRED COMPONENTS Quick Core DBus Gui GuiPrivate Widgets)
-find_package(KF6 REQUIRED COMPONENTS Config I18n IconThemes ItemModels WindowSystem XmlGui Package CoreAddons)
+find_package(KF6 REQUIRED COMPONENTS Config I18n IconThemes ItemModels WindowSystem XmlGui Package CoreAddons KIO JobWidgets Service)
 find_package(KF6StatusNotifierItem REQUIRED)
 find_package(Plasma REQUIRED)
 find_package(PlasmaQuick REQUIRED)
@@ -386,39 +389,54 @@ public:
 
         // 1. Patch QML
         addStepAction("Patching QML files...", [this]() {
-            return patchKickoffQml() && patchSystrayQml()
+            return patchApplicationsPage() && patchKickoffQml() && patchSystrayQml()
                 && patchShowdesktopQml() && patchDefaultCompactQml();
         });
 
-        // 2. Build kickoff
+        // 2. Update build config files (in case templates changed)
+        addStepAction("Updating build config...", [=, this]() {
+            return updateBuildConfig(kickBuild, systrayBuild);
+        });
+
+        // 3. Reconfigure
+        addStep("Reconfiguring kickoff...",
+                QStringLiteral("cmake .. -GNinja -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=$(pwd)/out -Wno-dev"),
+                kickBuild + QStringLiteral("/build"));
+
+        addStep("Reconfiguring systemtray...",
+                QStringLiteral("cmake .. -GNinja -DCMAKE_LIBRARY_OUTPUT_DIRECTORY=$(pwd)/out "
+                               "-DBUILD_TESTING=OFF -Wno-dev"),
+                systrayBuild + QStringLiteral("/build"));
+
+        // 4. Build kickoff
         addStep("Building kickoff...",
                 QStringLiteral("ninja"), kickBuild + QStringLiteral("/build"));
 
-        // 3. Build systray
+        // 5. Build systray
         addStep("Building systemtray...",
                 QStringLiteral("ninja"), systrayBuild + QStringLiteral("/build"));
 
-        // 4. Write install script
+        // 6. Write install script
         addStepAction("Preparing install...", [=, this]() {
             return writeInstallScript(kickBuild, systrayBuild);
         });
 
-        // 5. Stop plasmashell before replacing .so
+        // 7. Stop plasmashell before replacing .so
         addStep("Stopping plasmashell...",
                 QStringLiteral("kquitapp6 plasmashell"),
                 QString());
 
-        // 6. Install via pkexec
+        // 8. Install via pkexec
         addStep("Installing (pkexec)...",
                 QStringLiteral("pkexec bash ") + m_dataDir + QStringLiteral("/install.sh"),
                 m_dataDir);
 
-        // 7. Start plasmashell
+        // 9. Start plasmashell
         addStep("Starting plasmashell...",
                 QStringLiteral("systemctl --user start plasma-plasmashell"),
                 QString());
 
-        // 8. Save settings (records what's now installed)
+        // 10. Save settings (records what's now installed)
         addStepAction("Saving settings...", [this]() {
             saveSettings();
             return true;
@@ -607,7 +625,64 @@ private:
         return true;
     }
 
+    bool updateBuildConfig(const QString &kickBuild, const QString &systrayBuild) {
+        QFile f1(kickBuild + QStringLiteral("/CMakeLists.txt"));
+        if (!f1.open(QIODevice::WriteOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write kickoff CMakeLists.txt"));
+            return false;
+        }
+        f1.write(KICKOFF_CMAKE);
+        f1.close();
+
+        QFile f2(systrayBuild + QStringLiteral("/CMakeLists.txt"));
+        if (!f2.open(QIODevice::WriteOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write systray CMakeLists.txt"));
+            return false;
+        }
+        f2.write(SYSTRAY_CMAKE);
+        f2.close();
+        return true;
+    }
+
     // ── QML patching ────────────────────────────────────────────────
+
+    // Upstream fix for Plasma 6.7.0: sidebar category highlight missing when
+    // switchCategoryOnHover is enabled. Fixed in 6.7.1 (KDE bug #521558, commit 1cb436c).
+    // Only the visible condition changes — removes the switchCategoryOnHover guard.
+    bool patchApplicationsPage() {
+        QString path = m_dataDir + QStringLiteral("/kickoff-build/kickoff/ApplicationsPage.qml");
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot open ") + path);
+            return false;
+        }
+        QString content = QString::fromUtf8(f.readAll());
+        f.close();
+
+        const QString stockVisible = QStringLiteral(
+            "                visible: !Plasmoid.configuration.switchCategoryOnHover\n"
+            "                    && !sideBarDelegate.isSeparator\n"
+            "                    && hovered");
+
+        const QString fixedVisible = QStringLiteral(
+            "                visible: !sideBarDelegate.isSeparator && hovered");
+
+        if (!content.contains(stockVisible)) {
+            // Already patched (6.7.1+) or format changed — skip, non-fatal
+            return true;
+        }
+
+        content.replace(stockVisible, fixedVisible);
+
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
+            return false;
+        }
+        f.write(content.toUtf8());
+        f.close();
+        appendLog(QStringLiteral("  Sidebar hover highlight fixed"));
+        return true;
+    }
 
     bool patchKickoffQml() {
         QString path = m_dataDir + QStringLiteral("/kickoff-build/kickoff/KickoffListDelegate.qml");
