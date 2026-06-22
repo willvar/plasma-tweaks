@@ -1,14 +1,17 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QDomDocument>
 #include <QObject>
 #include <QProcess>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
 #include <algorithm>
+#include <functional>
 
 // ─── Embedded CMakeLists.txt for kickoff standalone build ───────────
 
@@ -84,98 +87,449 @@ import QtQuick.Layouts
 ApplicationWindow {
     id: root
     title: "Plasma Tweaks"
-    width: 440
-    height: 520
+    width: 760
+    height: 760
     visible: true
-    minimumWidth: 380
-    minimumHeight: 400
+    minimumWidth: 640
+    minimumHeight: 560
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 12
 
-        GroupBox {
-            title: "Kickoff Category Padding"
+        TabBar {
+            id: tabs
             Layout.fillWidth: true
-            RowLayout {
-                spacing: 8
-                SpinBox {
-                    id: paddingSpin
-                    from: 0
-                    to: 30
-                    enabled: !backend.busy && backend.initialized
-                    Component.onCompleted: value = backend.padding
-                    onValueModified: backend.padding = value
-                    Connections {
-                        target: backend
-                        function onPaddingChanged() { paddingSpin.value = backend.padding }
-                    }
-                }
-                Label { text: "px" }
-            }
+            TabButton { text: "Applet Tweaks" }
+            TabButton { text: "Font Strategy" }
         }
 
-        GroupBox {
-            title: "System Tray Icon Size"
-            Layout.fillWidth: true
-            ColumnLayout {
-                spacing: 4
-                RowLayout {
-                    spacing: 12
-                    Button {
-                        text: "<"
-                        implicitWidth: 36
-                        implicitHeight: 36
-                        enabled: !backend.busy && backend.initialized && backend.iconSizeIndex > 0
-                        onClicked: backend.prevIconSize()
-                    }
-                    Label {
-                        text: backend.iconSize + " px"
-                        font.bold: true
-                        font.pixelSize: 16
-                        horizontalAlignment: Text.AlignHCenter
-                        Layout.minimumWidth: 60
-                    }
-                    Button {
-                        text: ">"
-                        implicitWidth: 36
-                        implicitHeight: 36
-                        enabled: !backend.busy && backend.initialized && backend.iconSizeIndex < 4
-                        onClicked: backend.nextIconSize()
-                    }
-                }
-                Label {
-                    text: "Tiers: 16, 22, 32, 48, 64"
-                    font.pixelSize: 11
-                    opacity: 0.6
-                }
-            }
-        }
-
-        Button {
-            text: backend.needsInit ? "Initialize" : "Apply"
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            enabled: !backend.busy
-            highlighted: true
-            onClicked: {
-                if (backend.needsInit)
-                    backend.doInit()
-                else
-                    backend.apply()
-            }
-        }
-
-        GroupBox {
-            title: "Build Log"
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            currentIndex: tabs.currentIndex
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                ScrollView {
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: availableWidth
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 12
+
+                        GroupBox {
+                            title: "Kickoff Category Padding"
+                            Layout.fillWidth: true
+                            RowLayout {
+                                spacing: 8
+                                SpinBox {
+                                    id: paddingSpin
+                                    from: 0
+                                    to: 30
+                                    enabled: !backend.busy && backend.initialized
+                                    Component.onCompleted: value = backend.padding
+                                    onValueModified: backend.padding = value
+                                    Connections {
+                                        target: backend
+                                        function onPaddingChanged() { paddingSpin.value = backend.padding }
+                                    }
+                                }
+                                Label { text: "px" }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "System Tray Icon Size"
+                            Layout.fillWidth: true
+                            ColumnLayout {
+                                spacing: 4
+                                RowLayout {
+                                    spacing: 12
+                                    Button {
+                                        text: "<"
+                                        implicitWidth: 36
+                                        implicitHeight: 36
+                                        enabled: !backend.busy && backend.initialized && backend.iconSizeIndex > 0
+                                        onClicked: backend.prevIconSize()
+                                    }
+                                    Label {
+                                        text: backend.iconSize + " px"
+                                        font.bold: true
+                                        font.pixelSize: 16
+                                        horizontalAlignment: Text.AlignHCenter
+                                        Layout.minimumWidth: 60
+                                    }
+                                    Button {
+                                        text: ">"
+                                        implicitWidth: 36
+                                        implicitHeight: 36
+                                        enabled: !backend.busy && backend.initialized && backend.iconSizeIndex < 4
+                                        onClicked: backend.nextIconSize()
+                                    }
+                                }
+                                Label {
+                                    text: "Tiers: 16, 22, 32, 48, 64"
+                                    font.pixelSize: 11
+                                    opacity: 0.6
+                                }
+                            }
+                        }
+
+                        Button {
+                            text: backend.needsInit ? "Initialize" : "Apply"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 40
+                            enabled: !backend.busy
+                            highlighted: true
+                            onClicked: {
+                                if (backend.needsInit)
+                                    backend.doInit()
+                                else
+                                    backend.apply()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                ScrollView {
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: availableWidth
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 12
+
+                        Frame {
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 6
+
+                                Label {
+                                    text: "Fonts & IDE"
+                                    font.bold: true
+                                    font.pixelSize: 20
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "Start here: check the current setup, choose a quick action, then apply to the targets you want."
+                                    wrapMode: Text.WordWrap
+                                    opacity: 0.75
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "Default profile: IBM Plex Sans + HarmonyOS Sans SC fallback + Maple Mono CN"
+                                    wrapMode: Text.WordWrap
+                                    font.pixelSize: 12
+                                    opacity: 0.65
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Current Setup"
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 8
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: backend.fontState
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                Button {
+                                    text: "Read Current System"
+                                    enabled: !backend.busy
+                                    onClicked: backend.refreshFontState()
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Quick Actions"
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 8
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "Pick the path that matches what you want. You can still fine-tune everything below."
+                                    wrapMode: Text.WordWrap
+                                    opacity: 0.75
+                                }
+
+                                GridLayout {
+                                    width: parent.width
+                                    columns: 2
+                                    columnSpacing: 12
+                                    rowSpacing: 8
+
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: "Use Default Profile"
+                                        enabled: !backend.busy
+                                        onClicked: {
+                                            backend.uiFontFamily = "IBM Plex Sans"
+                                            backend.fallbackFontFamily = "HarmonyOS Sans SC"
+                                            backend.monoFontFamily = "Maple Mono CN"
+                                            backend.desktopUiSize = 14
+                                            backend.desktopMonoSize = 15
+                                            backend.ideUiSize = 17
+                                            backend.ideCodeSize = 16
+                                        }
+                                    }
+
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: "Select Everything"
+                                        enabled: !backend.busy
+                                        onClicked: {
+                                            backend.applyKde = true
+                                            backend.applyGtk = true
+                                            backend.applySddm = true
+                                            backend.applyJetBrains = true
+                                            backend.applyAndroidStudio = true
+                                        }
+                                    }
+
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: "Desktop Only"
+                                        enabled: !backend.busy
+                                        onClicked: {
+                                            backend.applyKde = true
+                                            backend.applyGtk = true
+                                            backend.applySddm = true
+                                            backend.applyJetBrains = false
+                                            backend.applyAndroidStudio = false
+                                        }
+                                    }
+
+                                    Button {
+                                        Layout.fillWidth: true
+                                        text: "IDEs Only"
+                                        enabled: !backend.busy
+                                        onClicked: {
+                                            backend.applyKde = false
+                                            backend.applyGtk = false
+                                            backend.applySddm = false
+                                            backend.applyJetBrains = true
+                                            backend.applyAndroidStudio = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Apply Scope"
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 8
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "These are the places that will be updated when you apply this profile."
+                                    wrapMode: Text.WordWrap
+                                    opacity: 0.75
+                                }
+
+                                GridLayout {
+                                    width: parent.width
+                                    columns: 2
+                                    columnSpacing: 12
+                                    rowSpacing: 8
+
+                                    CheckBox {
+                                        text: "KDE + user fontconfig"
+                                        checked: backend.applyKde
+                                        enabled: !backend.busy
+                                        onToggled: backend.applyKde = checked
+                                    }
+                                    CheckBox {
+                                        text: "GTK + xsettingsd"
+                                        checked: backend.applyGtk
+                                        enabled: !backend.busy
+                                        onToggled: backend.applyGtk = checked
+                                    }
+                                    CheckBox {
+                                        text: "SDDM + system fontconfig"
+                                        checked: backend.applySddm
+                                        enabled: !backend.busy
+                                        onToggled: backend.applySddm = checked
+                                    }
+                                    CheckBox {
+                                        text: "JetBrains IDEs"
+                                        checked: backend.applyJetBrains
+                                        enabled: !backend.busy
+                                        onToggled: backend.applyJetBrains = checked
+                                    }
+                                    CheckBox {
+                                        text: "Android Studio"
+                                        checked: backend.applyAndroidStudio
+                                        enabled: !backend.busy
+                                        onToggled: backend.applyAndroidStudio = checked
+                                    }
+                                }
+
+                                Button {
+                                    text: "Apply To Selected Targets"
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 40
+                                    enabled: !backend.busy
+                                    highlighted: true
+                                    onClicked: backend.applyFontStrategy()
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Advanced Settings"
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 12
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "Only touch these when you want to override the default profile or tune sizes manually."
+                                    wrapMode: Text.WordWrap
+                                    opacity: 0.75
+                                }
+
+                                GroupBox {
+                                    title: "Desktop Fonts"
+                                    Layout.fillWidth: true
+
+                                    ColumnLayout {
+                                        width: parent.width
+
+                                        GridLayout {
+                                            width: parent.width
+                                            columns: 2
+                                            columnSpacing: 12
+                                            rowSpacing: 8
+
+                                            Label { text: "UI font" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: backend.uiFontFamily
+                                                enabled: !backend.busy
+                                                onEditingFinished: backend.uiFontFamily = text
+                                            }
+
+                                            Label { text: "CJK fallback" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: backend.fallbackFontFamily
+                                                enabled: !backend.busy
+                                                onEditingFinished: backend.fallbackFontFamily = text
+                                            }
+
+                                            Label { text: "Monospace" }
+                                            TextField {
+                                                Layout.fillWidth: true
+                                                text: backend.monoFontFamily
+                                                enabled: !backend.busy
+                                                onEditingFinished: backend.monoFontFamily = text
+                                            }
+
+                                            Label { text: "Desktop UI size" }
+                                            SpinBox {
+                                                from: 8
+                                                to: 24
+                                                value: backend.desktopUiSize
+                                                enabled: !backend.busy
+                                                onValueModified: backend.desktopUiSize = value
+                                            }
+
+                                            Label { text: "Desktop mono size" }
+                                            SpinBox {
+                                                from: 8
+                                                to: 24
+                                                value: backend.desktopMonoSize
+                                                enabled: !backend.busy
+                                                onValueModified: backend.desktopMonoSize = value
+                                            }
+                                        }
+                                    }
+                                }
+
+                                GroupBox {
+                                    title: "IDE Defaults"
+                                    Layout.fillWidth: true
+
+                                    ColumnLayout {
+                                        width: parent.width
+
+                                        GridLayout {
+                                            width: parent.width
+                                            columns: 2
+                                            columnSpacing: 12
+                                            rowSpacing: 8
+
+                                            Label { text: "IDE UI size" }
+                                            SpinBox {
+                                                from: 8
+                                                to: 32
+                                                value: backend.ideUiSize
+                                                enabled: !backend.busy
+                                                onValueModified: backend.ideUiSize = value
+                                            }
+
+                                            Label { text: "Editor / Terminal size" }
+                                            SpinBox {
+                                                from: 8
+                                                to: 32
+                                                value: backend.ideCodeSize
+                                                enabled: !backend.busy
+                                                onValueModified: backend.ideCodeSize = value
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        GroupBox {
+            title: "Log"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 220
             ScrollView {
                 anchors.fill: parent
                 clip: true
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 TextArea {
                     id: logArea
+                    width: parent.width
                     readOnly: true
                     text: backend.logText
                     font.family: "monospace"
@@ -202,6 +556,19 @@ class TweaksBackend : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool initialized READ initialized NOTIFY initializedChanged)
     Q_PROPERTY(bool needsInit READ needsInit NOTIFY needsInitChanged)
+    Q_PROPERTY(QString uiFontFamily READ uiFontFamily WRITE setUiFontFamily NOTIFY fontSettingsChanged)
+    Q_PROPERTY(QString fallbackFontFamily READ fallbackFontFamily WRITE setFallbackFontFamily NOTIFY fontSettingsChanged)
+    Q_PROPERTY(QString monoFontFamily READ monoFontFamily WRITE setMonoFontFamily NOTIFY fontSettingsChanged)
+    Q_PROPERTY(int desktopUiSize READ desktopUiSize WRITE setDesktopUiSize NOTIFY fontSettingsChanged)
+    Q_PROPERTY(int desktopMonoSize READ desktopMonoSize WRITE setDesktopMonoSize NOTIFY fontSettingsChanged)
+    Q_PROPERTY(int ideUiSize READ ideUiSize WRITE setIdeUiSize NOTIFY fontSettingsChanged)
+    Q_PROPERTY(int ideCodeSize READ ideCodeSize WRITE setIdeCodeSize NOTIFY fontSettingsChanged)
+    Q_PROPERTY(bool applyKde READ applyKde WRITE setApplyKde NOTIFY fontSettingsChanged)
+    Q_PROPERTY(bool applyGtk READ applyGtk WRITE setApplyGtk NOTIFY fontSettingsChanged)
+    Q_PROPERTY(bool applySddm READ applySddm WRITE setApplySddm NOTIFY fontSettingsChanged)
+    Q_PROPERTY(bool applyJetBrains READ applyJetBrains WRITE setApplyJetBrains NOTIFY fontSettingsChanged)
+    Q_PROPERTY(bool applyAndroidStudio READ applyAndroidStudio WRITE setApplyAndroidStudio NOTIFY fontSettingsChanged)
+    Q_PROPERTY(QString fontState READ fontState NOTIFY fontStateChanged)
 
 public:
     explicit TweaksBackend(QObject *parent = nullptr)
@@ -218,6 +585,8 @@ public:
             if (!out.isEmpty()) appendLog(out);
         });
         connect(m_proc, &QProcess::finished, this, &TweaksBackend::onProcessFinished);
+
+        refreshFontState();
     }
 
     // ── Properties ──────────────────────────────────────────────────
@@ -238,10 +607,67 @@ public:
     bool busy() const { return m_busy; }
     bool initialized() const { return m_initialized; }
     bool needsInit() const { return m_needsInit; }
+    QString uiFontFamily() const { return m_uiFontFamily; }
+    QString fallbackFontFamily() const { return m_fallbackFontFamily; }
+    QString monoFontFamily() const { return m_monoFontFamily; }
+    int desktopUiSize() const { return m_desktopUiSize; }
+    int desktopMonoSize() const { return m_desktopMonoSize; }
+    int ideUiSize() const { return m_ideUiSize; }
+    int ideCodeSize() const { return m_ideCodeSize; }
+    bool applyKde() const { return m_applyKde; }
+    bool applyGtk() const { return m_applyGtk; }
+    bool applySddm() const { return m_applySddm; }
+    bool applyJetBrains() const { return m_applyJetBrains; }
+    bool applyAndroidStudio() const { return m_applyAndroidStudio; }
+    QString fontState() const { return m_fontState; }
+
+    void setUiFontFamily(const QString &v) {
+        if (m_uiFontFamily != v) { m_uiFontFamily = v; emit fontSettingsChanged(); }
+    }
+    void setFallbackFontFamily(const QString &v) {
+        if (m_fallbackFontFamily != v) { m_fallbackFontFamily = v; emit fontSettingsChanged(); }
+    }
+    void setMonoFontFamily(const QString &v) {
+        if (m_monoFontFamily != v) { m_monoFontFamily = v; emit fontSettingsChanged(); }
+    }
+    void setDesktopUiSize(int v) {
+        v = qBound(8, v, 32);
+        if (m_desktopUiSize != v) { m_desktopUiSize = v; emit fontSettingsChanged(); }
+    }
+    void setDesktopMonoSize(int v) {
+        v = qBound(8, v, 32);
+        if (m_desktopMonoSize != v) { m_desktopMonoSize = v; emit fontSettingsChanged(); }
+    }
+    void setIdeUiSize(int v) {
+        v = qBound(8, v, 32);
+        if (m_ideUiSize != v) { m_ideUiSize = v; emit fontSettingsChanged(); }
+    }
+    void setIdeCodeSize(int v) {
+        v = qBound(8, v, 32);
+        if (m_ideCodeSize != v) { m_ideCodeSize = v; emit fontSettingsChanged(); }
+    }
+    void setApplyKde(bool v) {
+        if (m_applyKde != v) { m_applyKde = v; emit fontSettingsChanged(); }
+    }
+    void setApplyGtk(bool v) {
+        if (m_applyGtk != v) { m_applyGtk = v; emit fontSettingsChanged(); }
+    }
+    void setApplySddm(bool v) {
+        if (m_applySddm != v) { m_applySddm = v; emit fontSettingsChanged(); }
+    }
+    void setApplyJetBrains(bool v) {
+        if (m_applyJetBrains != v) { m_applyJetBrains = v; emit fontSettingsChanged(); }
+    }
+    void setApplyAndroidStudio(bool v) {
+        if (m_applyAndroidStudio != v) { m_applyAndroidStudio = v; emit fontSettingsChanged(); }
+    }
+
     // ── Slots ───────────────────────────────────────────────────────
 
     Q_INVOKABLE void prevIconSize() { setIconSizeIndex(m_iconSizeIdx - 1); }
     Q_INVOKABLE void nextIconSize() { setIconSizeIndex(m_iconSizeIdx + 1); }
+    Q_INVOKABLE void refreshFontState() { refreshFontStateImpl(); }
+    Q_INVOKABLE void applyFontStrategy() { applyFontStrategyImpl(); }
 
     Q_INVOKABLE void checkInit() {
         m_log.clear();
@@ -452,6 +878,8 @@ signals:
     void busyChanged();
     void initializedChanged();
     void needsInitChanged();
+    void fontSettingsChanged();
+    void fontStateChanged();
 
 private:
     // ── Step queue ──────────────────────────────────────────────────
@@ -538,6 +966,10 @@ private:
     }
 
     bool writeFile(const QString &path, const QString &content) {
+        QFileInfo info(path);
+        if (!info.dir().exists())
+            QDir().mkpath(info.dir().absolutePath());
+
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
         f.write(content.toUtf8());
@@ -885,6 +1317,672 @@ cp "%2" "$COMPACT_QML"
         return true;
     }
 
+
+    QString runCommandCapture(const QString &program, const QStringList &args, int timeoutMs = 10000) const {
+        QProcess proc;
+        proc.start(program, args);
+        if (!proc.waitForFinished(timeoutMs))
+            return QString();
+        return QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    }
+
+    QString parseFcFamily(const QString &line) const {
+        QRegularExpression quoted(QStringLiteral("\"([^\"]+)\""));
+        auto match = quoted.match(line);
+        if (match.hasMatch())
+            return match.captured(1).trimmed();
+
+        int colon = line.indexOf(QLatin1Char(':'));
+        return (colon >= 0 ? line.left(colon) : line).trimmed();
+    }
+
+    QString extractIniValue(const QString &content, const QString &section, const QString &key) const {
+        const QStringList lines = content.split(QLatin1Char('\n'));
+        const QString sectionHeader = QStringLiteral("[") + section + QStringLiteral("]");
+        bool inSection = false;
+
+        for (const QString &rawLine : lines) {
+            const QString trimmed = rawLine.trimmed();
+            if (trimmed.startsWith(QLatin1Char('[')) && trimmed.endsWith(QLatin1Char(']'))) {
+                inSection = (trimmed == sectionHeader);
+                continue;
+            }
+            if (!inSection || trimmed.startsWith(QLatin1Char('#')) || trimmed.startsWith(QLatin1Char(';')))
+                continue;
+            if (trimmed.startsWith(key + QLatin1Char('=')))
+                return rawLine.mid(rawLine.indexOf(QLatin1Char('=')) + 1).trimmed();
+        }
+
+        return QString();
+    }
+
+    QString setIniValue(QString content, const QString &section, const QString &key, const QString &value) const {
+        QStringList lines = content.split(QLatin1Char('\n'));
+        const QString sectionHeader = QStringLiteral("[") + section + QStringLiteral("]");
+        int sectionStart = -1;
+        int sectionEnd = lines.size();
+
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString trimmed = lines[i].trimmed();
+            if (trimmed == sectionHeader) {
+                sectionStart = i;
+                for (int j = i + 1; j < lines.size(); ++j) {
+                    const QString candidate = lines[j].trimmed();
+                    if (candidate.startsWith(QLatin1Char('[')) && candidate.endsWith(QLatin1Char(']'))) {
+                        sectionEnd = j;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if (sectionStart < 0) {
+            if (!content.isEmpty() && !content.endsWith(QLatin1Char('\n')))
+                content += QLatin1Char('\n');
+            if (!content.isEmpty() && !content.endsWith(QStringLiteral("\n\n")))
+                content += QLatin1Char('\n');
+            content += sectionHeader + QLatin1Char('\n') + key + QLatin1Char('=') + value + QLatin1Char('\n');
+            return content;
+        }
+
+        for (int i = sectionStart + 1; i < sectionEnd; ++i) {
+            const QString trimmed = lines[i].trimmed();
+            if (trimmed.startsWith(key + QLatin1Char('='))) {
+                lines[i] = key + QLatin1Char('=') + value;
+                return lines.join(QLatin1Char('\n'));
+            }
+        }
+
+        lines.insert(sectionEnd, key + QLatin1Char('=') + value);
+        return lines.join(QLatin1Char('\n'));
+    }
+
+    QString setLineValue(QString content, const QString &key, const QString &value) const {
+        const QRegularExpression re(QStringLiteral("(?m)^%1.*$").arg(QRegularExpression::escape(key)));
+        const QString replacement = key + value;
+        if (content.contains(re))
+            content.replace(re, replacement);
+        else {
+            if (!content.isEmpty() && !content.endsWith(QLatin1Char('\n')))
+                content += QLatin1Char('\n');
+            content += replacement + QLatin1Char('\n');
+        }
+        return content;
+    }
+
+    QString quotedGtkFont(int size) const {
+        return QStringLiteral("\"") + m_uiFontFamily + QStringLiteral(",  ") + QString::number(size) + QStringLiteral("\"");
+    }
+
+    QString plainGtkFont(int size) const {
+        return m_uiFontFamily + QStringLiteral(",  ") + QString::number(size);
+    }
+
+    QString kdeFontValue(const QString &family, int size) const {
+        return QStringLiteral("%1,%2,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0")
+            .arg(family, QString::number(size));
+    }
+
+    QString sanitizeXmlText(QString value) const {
+        return value.toHtmlEscaped();
+    }
+
+    QString fontconfigBlock() const {
+        return QString(
+            "  <!-- plasma-tweaks: font strategy begin -->\n"
+            "  <match>\n"
+            "    <test compare=\"contains\" name=\"lang\">\n"
+            "      <string>zh</string>\n"
+            "    </test>\n"
+            "    <test name=\"family\">\n"
+            "      <string>monospace</string>\n"
+            "    </test>\n"
+            "    <edit binding=\"strong\" mode=\"prepend\" name=\"family\">\n"
+            "      <string>%1</string>\n"
+            "    </edit>\n"
+            "  </match>\n"
+            "  <alias>\n"
+            "    <family>sans-serif</family>\n"
+            "    <prefer>\n"
+            "      <family>%2</family>\n"
+            "      <family>%3</family>\n"
+            "    </prefer>\n"
+            "  </alias>\n"
+            "  <alias>\n"
+            "    <family>serif</family>\n"
+            "    <prefer>\n"
+            "      <family>%2</family>\n"
+            "      <family>%3</family>\n"
+            "    </prefer>\n"
+            "  </alias>\n"
+            "  <alias>\n"
+            "    <family>monospace</family>\n"
+            "    <prefer>\n"
+            "      <family>%1</family>\n"
+            "    </prefer>\n"
+            "  </alias>\n"
+            "  <match target=\"pattern\">\n"
+            "    <test name=\"family\">\n"
+            "      <string>%2</string>\n"
+            "    </test>\n"
+            "    <edit binding=\"weak\" mode=\"append\" name=\"family\">\n"
+            "      <string>%3</string>\n"
+            "    </edit>\n"
+            "  </match>\n"
+            "  <!-- plasma-tweaks: font strategy end -->")
+            .arg(sanitizeXmlText(m_monoFontFamily), sanitizeXmlText(m_uiFontFamily), sanitizeXmlText(m_fallbackFontFamily));
+    }
+
+    QString systemFontconfigContent() const {
+        return QString(
+            "<?xml version=\"1.0\"?>\n"
+            "<!DOCTYPE fontconfig SYSTEM \"fonts.dtd\">\n"
+            "<fontconfig>\n"
+            "  <match target=\"pattern\">\n"
+            "    <test qual=\"any\" name=\"family\">\n"
+            "      <string>sans-serif</string>\n"
+            "    </test>\n"
+            "    <edit name=\"family\" mode=\"prepend_first\" binding=\"strong\">\n"
+            "      <string>%1</string>\n"
+            "    </edit>\n"
+            "  </match>\n\n"
+            "  <match target=\"pattern\">\n"
+            "    <test qual=\"any\" name=\"family\">\n"
+            "      <string>serif</string>\n"
+            "    </test>\n"
+            "    <edit name=\"family\" mode=\"prepend_first\" binding=\"strong\">\n"
+            "      <string>%1</string>\n"
+            "    </edit>\n"
+            "  </match>\n\n"
+            "  <match target=\"pattern\">\n"
+            "    <test qual=\"any\" name=\"family\">\n"
+            "      <string>monospace</string>\n"
+            "    </test>\n"
+            "    <edit name=\"family\" mode=\"prepend_first\" binding=\"strong\">\n"
+            "      <string>%2</string>\n"
+            "    </edit>\n"
+            "  </match>\n\n"
+            "  <match target=\"pattern\">\n"
+            "    <test qual=\"any\" name=\"family\">\n"
+            "      <string>%1</string>\n"
+            "    </test>\n"
+            "    <edit name=\"family\" mode=\"append\" binding=\"weak\">\n"
+            "      <string>%3</string>\n"
+            "    </edit>\n"
+            "  </match>\n\n"
+            "  <match target=\"pattern\">\n"
+            "    <test qual=\"any\" name=\"family\">\n"
+            "      <string>Fira Sans</string>\n"
+            "    </test>\n"
+            "    <edit name=\"family\" mode=\"assign\" binding=\"strong\">\n"
+            "      <string>%1</string>\n"
+            "    </edit>\n"
+            "  </match>\n"
+            "</fontconfig>\n")
+            .arg(sanitizeXmlText(m_uiFontFamily), sanitizeXmlText(m_monoFontFamily), sanitizeXmlText(m_fallbackFontFamily));
+    }
+
+    bool updateUserFontconfig() {
+        const QString path = QDir::homePath() + QStringLiteral("/.config/fontconfig/fonts.conf");
+        QString content = readFile(path);
+        if (content.isNull() || !content.contains(QStringLiteral("</fontconfig>"))) {
+            content = QStringLiteral("<?xml version='1.0'?>\n<!DOCTYPE fontconfig SYSTEM 'urn:fontconfig:fonts.dtd'>\n<fontconfig>\n</fontconfig>\n");
+        }
+
+        const QString block = fontconfigBlock();
+        const QRegularExpression managedBlock(
+            QStringLiteral("\\s*<!-- plasma-tweaks: font strategy begin -->.*?<!-- plasma-tweaks: font strategy end -->\\s*"),
+            QRegularExpression::DotMatchesEverythingOption);
+        if (content.contains(managedBlock)) {
+            content.replace(managedBlock, QStringLiteral("\n") + block + QStringLiteral("\n"));
+        } else {
+            content.replace(QStringLiteral("</fontconfig>"), QStringLiteral("\n") + block + QStringLiteral("\n</fontconfig>"));
+        }
+
+        if (!writeFile(path, content)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
+            return false;
+        }
+        appendLog(QStringLiteral("  Updated user fontconfig"));
+        return true;
+    }
+
+    bool updateKdeGlobals() {
+        const QString path = QDir::homePath() + QStringLiteral("/.config/kdeglobals");
+        QString content = readFile(path);
+        content = setIniValue(content, QStringLiteral("General"), QStringLiteral("font"), kdeFontValue(m_uiFontFamily, m_desktopUiSize));
+        content = setIniValue(content, QStringLiteral("General"), QStringLiteral("fixed"), kdeFontValue(m_monoFontFamily, m_desktopMonoSize));
+        if (!writeFile(path, content)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + path);
+            return false;
+        }
+        appendLog(QStringLiteral("  Updated KDE fonts"));
+        return true;
+    }
+
+    bool updateGtkConfigs() {
+        const QString gtkFont = plainGtkFont(m_desktopUiSize);
+
+        QString gtk3Path = QDir::homePath() + QStringLiteral("/.config/gtk-3.0/settings.ini");
+        QString gtk3 = setIniValue(readFile(gtk3Path), QStringLiteral("Settings"), QStringLiteral("gtk-font-name"), gtkFont);
+        if (!writeFile(gtk3Path, gtk3)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + gtk3Path);
+            return false;
+        }
+
+        QString gtk4Path = QDir::homePath() + QStringLiteral("/.config/gtk-4.0/settings.ini");
+        QString gtk4 = setIniValue(readFile(gtk4Path), QStringLiteral("Settings"), QStringLiteral("gtk-font-name"), gtkFont);
+        if (!writeFile(gtk4Path, gtk4)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + gtk4Path);
+            return false;
+        }
+
+        const QString gtk2Path = QDir::homePath() + QStringLiteral("/.gtkrc-2.0");
+        QString gtk2 = setLineValue(readFile(gtk2Path), QStringLiteral("gtk-font-name="), quotedGtkFont(m_desktopUiSize));
+        if (!writeFile(gtk2Path, gtk2)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + gtk2Path);
+            return false;
+        }
+
+        const QString xsettingsPath = QDir::homePath() + QStringLiteral("/.config/xsettingsd/xsettingsd.conf");
+        QString xsettings = setLineValue(readFile(xsettingsPath), QStringLiteral("Gtk/FontName "), quotedGtkFont(m_desktopUiSize));
+        if (!writeFile(xsettingsPath, xsettings)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + xsettingsPath);
+            return false;
+        }
+
+        appendLog(QStringLiteral("  Updated GTK + xsettingsd fonts"));
+        return true;
+    }
+
+    QDomElement ensureApplicationRoot(QDomDocument &doc) const {
+        QDomElement root = doc.documentElement();
+        if (!root.isNull() && root.tagName() == QStringLiteral("application"))
+            return root;
+
+        doc.clear();
+        doc.appendChild(doc.createProcessingInstruction(QStringLiteral("xml"), QStringLiteral("version=\"1.0\" encoding=\"UTF-8\"")));
+        root = doc.createElement(QStringLiteral("application"));
+        doc.appendChild(root);
+        return root;
+    }
+
+    bool loadApplicationXml(const QString &path, QDomDocument &doc) {
+        QFile file(path);
+        if (!file.exists()) {
+            ensureApplicationRoot(doc);
+            return true;
+        }
+        if (!file.open(QIODevice::ReadOnly)) {
+            appendLog(QStringLiteral("  ERROR: Cannot read ") + path);
+            return false;
+        }
+
+        const auto parseResult = doc.setContent(&file);
+        if (!parseResult) {
+            appendLog(QStringLiteral("  ERROR: XML parse failed for %1 (%2:%3 %4)")
+                          .arg(path)
+                          .arg(parseResult.errorLine)
+                          .arg(parseResult.errorColumn)
+                          .arg(parseResult.errorMessage));
+            return false;
+        }
+
+        ensureApplicationRoot(doc);
+        return true;
+    }
+
+    QDomElement ensureComponent(QDomDocument &doc, const QString &name) const {
+        QDomElement root = ensureApplicationRoot(doc);
+        for (QDomNode node = root.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const QDomElement element = node.toElement();
+            if (!element.isNull() && element.tagName() == QStringLiteral("component")
+                && element.attribute(QStringLiteral("name")) == name) {
+                return element;
+            }
+        }
+
+        QDomElement component = doc.createElement(QStringLiteral("component"));
+        component.setAttribute(QStringLiteral("name"), name);
+        root.appendChild(component);
+        return component;
+    }
+
+    QDomElement ensureOption(QDomDocument &doc, QDomElement component, const QString &name) const {
+        for (QDomNode node = component.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const QDomElement element = node.toElement();
+            if (!element.isNull() && element.tagName() == QStringLiteral("option")
+                && element.attribute(QStringLiteral("name")) == name) {
+                return element;
+            }
+        }
+
+        QDomElement option = doc.createElement(QStringLiteral("option"));
+        option.setAttribute(QStringLiteral("name"), name);
+        component.appendChild(option);
+        return option;
+    }
+
+    void setOptionValue(QDomDocument &doc, QDomElement component, const QString &name, const QString &value) const {
+        QDomElement option = ensureOption(doc, component, name);
+        option.setAttribute(QStringLiteral("value"), value);
+    }
+
+    QString optionValue(const QDomElement &component, const QString &name) const {
+        for (QDomNode node = component.firstChild(); !node.isNull(); node = node.nextSibling()) {
+            const QDomElement element = node.toElement();
+            if (!element.isNull() && element.tagName() == QStringLiteral("option")
+                && element.attribute(QStringLiteral("name")) == name) {
+                return element.attribute(QStringLiteral("value")).trimmed();
+            }
+        }
+        return QString();
+    }
+
+    bool saveXml(const QString &path, const QDomDocument &doc) {
+        return writeFile(path, doc.toString(2));
+    }
+
+    QStringList ideOptionDirs(const QString &basePath, const QString &prefix = QString()) const {
+        QStringList result;
+        QDir base(basePath);
+        if (!base.exists())
+            return result;
+
+        const QFileInfoList entries = base.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QFileInfo &entry : entries) {
+            const QString name = entry.fileName();
+            if (!prefix.isEmpty() && !name.startsWith(prefix))
+                continue;
+            if (name.contains(QStringLiteral("backup"), Qt::CaseInsensitive))
+                continue;
+
+            const QString optionsDir = entry.filePath() + QStringLiteral("/options");
+            if (QDir(optionsDir).exists())
+                result.append(optionsDir);
+        }
+        return result;
+    }
+
+    bool updateIdeProfile(const QString &optionsDir) {
+        QDomDocument otherDoc;
+        const QString otherPath = optionsDir + QStringLiteral("/other.xml");
+        if (!loadApplicationXml(otherPath, otherDoc))
+            return false;
+        {
+            QDomElement component = ensureComponent(otherDoc, QStringLiteral("NotRoamableUiSettings"));
+            setOptionValue(otherDoc, component, QStringLiteral("fontFace"), m_uiFontFamily);
+            setOptionValue(otherDoc, component, QStringLiteral("fontSize"), QString::number(m_ideUiSize) + QStringLiteral(".0"));
+            setOptionValue(otherDoc, component, QStringLiteral("overrideLafFonts"), QStringLiteral("true"));
+        }
+        if (!saveXml(otherPath, otherDoc)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + otherPath);
+            return false;
+        }
+
+        QDomDocument editorDoc;
+        const QString editorPath = optionsDir + QStringLiteral("/editor-font.xml");
+        if (!loadApplicationXml(editorPath, editorDoc))
+            return false;
+        {
+            QDomElement component = ensureComponent(editorDoc, QStringLiteral("DefaultFont"));
+            setOptionValue(editorDoc, component, QStringLiteral("VERSION"), QStringLiteral("1"));
+            setOptionValue(editorDoc, component, QStringLiteral("FONT_SIZE"), QString::number(m_ideCodeSize));
+            setOptionValue(editorDoc, component, QStringLiteral("FONT_SIZE_2D"), QString::number(m_ideCodeSize) + QStringLiteral(".0"));
+            setOptionValue(editorDoc, component, QStringLiteral("FONT_FAMILY"), m_monoFontFamily);
+            setOptionValue(editorDoc, component, QStringLiteral("SECONDARY_FONT_FAMILY"), m_fallbackFontFamily);
+        }
+        if (!saveXml(editorPath, editorDoc)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + editorPath);
+            return false;
+        }
+
+        QDomDocument terminalDoc;
+        const QString terminalPath = optionsDir + QStringLiteral("/terminal-font.xml");
+        if (!loadApplicationXml(terminalPath, terminalDoc))
+            return false;
+        {
+            QDomElement component = ensureComponent(terminalDoc, QStringLiteral("TerminalFontOptions"));
+            setOptionValue(terminalDoc, component, QStringLiteral("VERSION"), QStringLiteral("1"));
+            setOptionValue(terminalDoc, component, QStringLiteral("FONT_SIZE"), QString::number(m_ideCodeSize));
+            setOptionValue(terminalDoc, component, QStringLiteral("FONT_SIZE_2D"), QString::number(m_ideCodeSize) + QStringLiteral(".0"));
+            setOptionValue(terminalDoc, component, QStringLiteral("FONT_FAMILY"), m_monoFontFamily);
+            setOptionValue(terminalDoc, component, QStringLiteral("SECONDARY_FONT_FAMILY"), m_fallbackFontFamily);
+        }
+        if (!saveXml(terminalPath, terminalDoc)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + terminalPath);
+            return false;
+        }
+
+        return true;
+    }
+
+    int updateIdeRoot(const QString &basePath, const QString &prefix) {
+        int updated = 0;
+        const QStringList dirs = ideOptionDirs(basePath, prefix);
+        for (const QString &dir : dirs) {
+            if (!updateIdeProfile(dir))
+                return -1;
+            ++updated;
+        }
+        return updated;
+    }
+
+    bool stageRootFontFiles() {
+        const QString systemConfPath = m_dataDir + QStringLiteral("/99-len-fonts.conf");
+        if (!writeFile(systemConfPath, systemFontconfigContent())) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + systemConfPath);
+            return false;
+        }
+
+        const QString sddmPath = QStringLiteral("/etc/sddm.conf.d/kde_settings.conf");
+        QString sddmContent = readFile(sddmPath);
+        sddmContent = setIniValue(sddmContent, QStringLiteral("Theme"), QStringLiteral("Font"), kdeFontValue(m_uiFontFamily, m_desktopUiSize));
+        const QString stagedSddmPath = m_dataDir + QStringLiteral("/kde_settings.conf");
+        if (!writeFile(stagedSddmPath, sddmContent)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + stagedSddmPath);
+            return false;
+        }
+
+        const QString scriptPath = m_dataDir + QStringLiteral("/apply-font-root.sh");
+        const QString script = QString(
+            "#!/bin/bash\n"
+            "set -e\n"
+            "install -Dm644 %1 /etc/fonts/conf.d/99-len-fonts.conf\n"
+            "install -Dm644 %2 /etc/sddm.conf.d/kde_settings.conf\n"
+            "fc-cache -f\n"
+            "echo Root font strategy installed\n")
+            .arg(shellQuote(systemConfPath), shellQuote(stagedSddmPath));
+        if (!writeFile(scriptPath, script)) {
+            appendLog(QStringLiteral("  ERROR: Cannot write ") + scriptPath);
+            return false;
+        }
+        QFile::setPermissions(scriptPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner
+                                         | QFileDevice::ReadGroup | QFileDevice::ExeGroup
+                                         | QFileDevice::ReadOther | QFileDevice::ExeOther);
+        appendLog(QStringLiteral("  Staged root font files"));
+        return true;
+    }
+
+    QString shellQuote(const QString &value) const {
+        QString escaped = value;
+        escaped.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+        return QStringLiteral("'") + escaped + QStringLiteral("'");
+    }
+
+    bool applyUserFontStrategy() {
+        if (m_applyKde) {
+            if (!updateUserFontconfig() || !updateKdeGlobals())
+                return false;
+        }
+
+        if (m_applyGtk && !updateGtkConfigs())
+            return false;
+
+        if (m_applyJetBrains) {
+            const int count = updateIdeRoot(QDir::homePath() + QStringLiteral("/.config/JetBrains"), QString());
+            if (count < 0)
+                return false;
+            appendLog(QStringLiteral("  Updated %1 JetBrains profile(s)").arg(count));
+        }
+
+        if (m_applyAndroidStudio) {
+            const int count = updateIdeRoot(QDir::homePath() + QStringLiteral("/.config/Google"), QStringLiteral("AndroidStudio"));
+            if (count < 0)
+                return false;
+            appendLog(QStringLiteral("  Updated %1 Android Studio profile(s)").arg(count));
+        }
+
+        return true;
+    }
+
+
+    void refreshFontStateImpl() {
+        QString detectedUi = parseFcFamily(runCommandCapture(QStringLiteral("fc-match"), {QStringLiteral("sans-serif")}));
+        QString detectedMono = parseFcFamily(runCommandCapture(QStringLiteral("fc-match"), {QStringLiteral("monospace")}));
+        QStringList fallbackLines = runCommandCapture(QStringLiteral("fc-match"), {QStringLiteral("-s"), QStringLiteral("sans-serif")}).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        QString detectedFallback;
+        for (const QString &line : fallbackLines) {
+            const QString family = parseFcFamily(line);
+            if (!family.isEmpty() && family != detectedUi) {
+                detectedFallback = family;
+                break;
+            }
+        }
+
+        const QString kdeGlobals = readFile(QDir::homePath() + QStringLiteral("/.config/kdeglobals"));
+        const QString kdeFont = extractIniValue(kdeGlobals, QStringLiteral("General"), QStringLiteral("font"));
+        const QString kdeFixed = extractIniValue(kdeGlobals, QStringLiteral("General"), QStringLiteral("fixed"));
+
+        auto parseFontTuple = [](const QString &value, QString *family, int *size) {
+            if (family)
+                family->clear();
+            if (size)
+                *size = 0;
+            if (value.isEmpty())
+                return;
+            const QStringList parts = value.split(QLatin1Char(','));
+            if (family && !parts.isEmpty())
+                *family = parts[0].trimmed();
+            if (size && parts.size() > 1)
+                *size = parts[1].trimmed().toInt();
+        };
+
+        QString kdeUiFamily;
+        int kdeUiSize = 0;
+        parseFontTuple(kdeFont, &kdeUiFamily, &kdeUiSize);
+        QString kdeMonoFamily;
+        int kdeMonoSize = 0;
+        parseFontTuple(kdeFixed, &kdeMonoFamily, &kdeMonoSize);
+
+        const QString gtk3 = readFile(QDir::homePath() + QStringLiteral("/.config/gtk-3.0/settings.ini"));
+        const QString gtkFont = extractIniValue(gtk3, QStringLiteral("Settings"), QStringLiteral("gtk-font-name"));
+        const QString xsettings = readFile(QDir::homePath() + QStringLiteral("/.config/xsettingsd/xsettingsd.conf"));
+        QString xsettingsFont;
+        {
+            QRegularExpression re(QStringLiteral("(?m)^Gtk/FontName\\s+\"([^\"]+)\""));
+            auto match = re.match(xsettings);
+            if (match.hasMatch())
+                xsettingsFont = match.captured(1).trimmed();
+        }
+
+        const QString sddm = readFile(QStringLiteral("/etc/sddm.conf.d/kde_settings.conf"));
+        const QString sddmFont = extractIniValue(sddm, QStringLiteral("Theme"), QStringLiteral("Font"));
+
+        const QStringList jetBrainsDirs = ideOptionDirs(QDir::homePath() + QStringLiteral("/.config/JetBrains"));
+        const QStringList androidStudioDirs = ideOptionDirs(QDir::homePath() + QStringLiteral("/.config/Google"), QStringLiteral("AndroidStudio"));
+
+        if (!detectedUi.isEmpty())
+            m_uiFontFamily = detectedUi;
+        if (!detectedFallback.isEmpty())
+            m_fallbackFontFamily = detectedFallback;
+        if (!detectedMono.isEmpty())
+            m_monoFontFamily = detectedMono;
+        if (kdeUiSize > 0)
+            m_desktopUiSize = kdeUiSize;
+        if (kdeMonoSize > 0)
+            m_desktopMonoSize = kdeMonoSize;
+
+        auto loadIdeSizes = [this](const QStringList &dirs) {
+            for (const QString &dir : dirs) {
+                QDomDocument otherDoc;
+                if (loadApplicationXml(dir + QStringLiteral("/other.xml"), otherDoc)) {
+                    const QDomElement comp = ensureComponent(otherDoc, QStringLiteral("NotRoamableUiSettings"));
+                    const QString uiSize = optionValue(comp, QStringLiteral("fontSize"));
+                    if (!uiSize.isEmpty()) {
+                        m_ideUiSize = uiSize.toDouble();
+                        break;
+                    }
+                }
+            }
+            for (const QString &dir : dirs) {
+                QDomDocument editorDoc;
+                if (loadApplicationXml(dir + QStringLiteral("/editor-font.xml"), editorDoc)) {
+                    const QDomElement comp = ensureComponent(editorDoc, QStringLiteral("DefaultFont"));
+                    const QString codeSize = optionValue(comp, QStringLiteral("FONT_SIZE"));
+                    if (!codeSize.isEmpty()) {
+                        m_ideCodeSize = codeSize.toInt();
+                        break;
+                    }
+                }
+            }
+        };
+        if (!jetBrainsDirs.isEmpty())
+            loadIdeSizes(jetBrainsDirs);
+        else if (!androidStudioDirs.isEmpty())
+            loadIdeSizes(androidStudioDirs);
+
+        QStringList stateLines;
+        stateLines << QStringLiteral("Fontconfig sans-serif: %1").arg(detectedUi.isEmpty() ? QStringLiteral("(unknown)") : detectedUi)
+                   << QStringLiteral("Fontconfig CJK fallback: %1").arg(detectedFallback.isEmpty() ? QStringLiteral("(unknown)") : detectedFallback)
+                   << QStringLiteral("Fontconfig monospace: %1").arg(detectedMono.isEmpty() ? QStringLiteral("(unknown)") : detectedMono)
+                   << QStringLiteral("KDE UI / fixed: %1 / %2").arg(kdeFont.isEmpty() ? QStringLiteral("(unset)") : kdeFont,
+                                                                   kdeFixed.isEmpty() ? QStringLiteral("(unset)") : kdeFixed)
+                   << QStringLiteral("GTK: %1").arg(gtkFont.isEmpty() ? QStringLiteral("(unset)") : gtkFont)
+                   << QStringLiteral("xsettingsd: %1").arg(xsettingsFont.isEmpty() ? QStringLiteral("(unset)") : xsettingsFont)
+                   << QStringLiteral("SDDM: %1").arg(sddmFont.isEmpty() ? QStringLiteral("(unset)") : sddmFont)
+                   << QStringLiteral("JetBrains profiles: %1").arg(jetBrainsDirs.size())
+                   << QStringLiteral("Android Studio profiles: %1").arg(androidStudioDirs.size())
+                   << QStringLiteral("IDE defaults: UI %1 / code %2").arg(m_ideUiSize).arg(m_ideCodeSize);
+
+        const QString newState = stateLines.join(QLatin1Char('\n'));
+        if (m_fontState != newState) {
+            m_fontState = newState;
+            emit fontStateChanged();
+        }
+        emit fontSettingsChanged();
+    }
+
+    void applyFontStrategyImpl() {
+        if (m_busy)
+            return;
+
+        m_steps.clear();
+        addStepAction(QStringLiteral("Writing user font settings..."), [this]() {
+            return applyUserFontStrategy();
+        });
+
+        if (m_applySddm) {
+            addStepAction(QStringLiteral("Preparing root font files..."), [this]() {
+                return stageRootFontFiles();
+            });
+            addStep(QStringLiteral("Installing SDDM + system fontconfig (pkexec)..."),
+                    QStringLiteral("pkexec bash ") + shellQuote(m_dataDir + QStringLiteral("/apply-font-root.sh")),
+                    m_dataDir);
+        }
+
+        addStep(QStringLiteral("Refreshing font cache..."), QStringLiteral("fc-cache -f"), QString());
+        if (m_applyGtk) {
+            addStep(QStringLiteral("Reloading xsettingsd..."), QStringLiteral("pkill -HUP xsettingsd || true"), QString());
+        }
+        addStepAction(QStringLiteral("Refreshing font summary..."), [this]() {
+            refreshFontState();
+            return true;
+        });
+        runSteps();
+    }
+
     // ── Settings persistence ────────────────────────────────────────
 
     void saveSettings() {
@@ -967,6 +2065,19 @@ cp "%2" "$COMPACT_QML"
     QString m_dataDir;
     QString m_plasmaVersion;
     QString m_appletsDir;
+    QString m_uiFontFamily = QStringLiteral("IBM Plex Sans");
+    QString m_fallbackFontFamily = QStringLiteral("HarmonyOS Sans SC");
+    QString m_monoFontFamily = QStringLiteral("Maple Mono CN");
+    int m_desktopUiSize = 14;
+    int m_desktopMonoSize = 15;
+    int m_ideUiSize = 17;
+    int m_ideCodeSize = 16;
+    bool m_applyKde = true;
+    bool m_applyGtk = true;
+    bool m_applySddm = true;
+    bool m_applyJetBrains = true;
+    bool m_applyAndroidStudio = true;
+    QString m_fontState;
 
     QList<Step> m_steps;
     int m_stepIdx = -1;
